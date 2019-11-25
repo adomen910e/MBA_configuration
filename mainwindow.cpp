@@ -1,0 +1,140 @@
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+#include <QtDebug>
+#include <QFileDialog>
+#include <QDir>
+#include <QMessageBox>
+#include "formtableau.h"
+#include "canvaitem.h"
+#include "Config/configholder.h"
+#include "Config/dropboxexporter.h"
+#include "threadexport.h"
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    ui->lvTableaux->setWordWrap(true);
+    ui->lvTableaux->setIconSize(QSize(150,150));
+    ui->lvTableaux->setResizeMode(QListWidget::Adjust);
+    ui->lvTableaux->setDragEnabled(false);
+
+    connect(ui->lvTableaux, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(openCanvas(QListWidgetItem*)));
+    ConfigHolder* hold = ConfigHolder::Instance();
+    hold->addEmpty();
+    createUIFromConfig(hold);
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+void MainWindow::openCanvas(QListWidgetItem *item)
+{
+    canvaItem *itemC = (canvaItem*)item;
+    if(itemC->getText() == "Nouveau"){
+        ConfigHolder::Instance()->addEmpty();
+        createUIFromConfig(ConfigHolder::Instance());
+    } else {
+        formTableau *tab = new formTableau(this,itemC);
+        tab->exec();
+    }
+    reDraw();
+}
+
+void MainWindow::reDraw(){
+    qDebug() << "redraw" << endl;
+    ConfigHolder* hold = ConfigHolder::Instance();
+    createUIFromConfig(hold);
+}
+
+void MainWindow::on_actionOuvrir_triggered()
+{
+    QString fileName = QFileDialog::getOpenFileName(this,
+        tr("Open Configuration"), QDir::currentPath(), tr("Configuration Files (*.json)"));
+    if(fileName!=NULL) {
+        ConfigHolder* hold = ConfigHolder::Instance();
+        QMessageBox *msgBox = new QMessageBox(this);
+            msgBox->setText("Please wait while loading configuration's file.");
+            msgBox->setWindowTitle("Loading configuration's file...");
+            msgBox->setWindowModality(Qt::WindowModal);
+            msgBox->setStandardButtons(0);
+            msgBox->setModal(true);
+            msgBox->show();
+            msgBox->raise();
+            QObject::connect(hold,SIGNAL(configImported(int)),msgBox,SLOT(done(int)));
+        hold->LoadFromJSONFile(fileName);
+        reDraw();
+    }
+}
+
+void MainWindow::createUIFromConfig(const ConfigHolder *conf){
+    QVector<Canva*> canvas = conf->getCanvas();
+    ui->lvTableaux->clear();
+    foreach (Canva *c, canvas) {
+        ui->lvTableaux->addItem(c->toItem());
+    }
+    ui->lvTableaux->repaint();
+}
+
+void MainWindow::on_actionEnregistrer_triggered()
+{
+    QString fileName = QFileDialog::getSaveFileName(this,
+        tr("Save Configuration"), QDir::currentPath(), tr("Configuration Files (*.json)"));
+    if(fileName!=NULL) {
+        ConfigHolder* hold = ConfigHolder::Instance();
+        QMessageBox *msgBox = new QMessageBox(this);
+            msgBox->setText("Please wait while creating configuration's file.");
+            msgBox->setWindowTitle("Creating configuration's file...");
+            msgBox->setWindowModality(Qt::WindowModal);
+            msgBox->setStandardButtons(0);
+            msgBox->setModal(true);
+            msgBox->show();
+            msgBox->raise();
+            QObject::connect(hold,SIGNAL(configExported(int)),msgBox,SLOT(done(int)));
+        ThreadExport *t = new ThreadExport(fileName,hold);
+        t->start();
+    }
+}
+
+void MainWindow::on_leSearch_textChanged(const QString &arg1)
+{
+    ui->lvTableaux->clear();
+    QVector<Canva*> canvas = ConfigHolder::Instance()->getCanvas();
+    ui->lvTableaux->clear();
+    foreach (Canva *c, canvas) {
+        if(c->getName().contains(arg1)) {
+            ui->lvTableaux->addItem(c->toItem());
+        }
+    }
+    ui->lvTableaux->repaint();
+}
+
+void MainWindow::on_pbSupCanva_released()
+{
+    if(ui->lvTableaux->selectedItems().size()<1) return;
+
+    if(ui->lvTableaux->selectionModel()->selectedIndexes().at(0).row() == 0) return;
+
+    QModelIndexList indexes = ui->lvTableaux->selectionModel()->selectedIndexes();
+    int pos_to_suppress = ui->lvTableaux->selectionModel()->selectedIndexes().at(0).row();
+
+    ConfigHolder* hold = ConfigHolder::Instance();
+    hold->delCanva(pos_to_suppress);
+    QVector<Canva*> canvas = ConfigHolder::Instance()->getCanvas();
+    ui->lvTableaux->clear();
+    int i =0;
+    foreach (Canva *c, canvas) {
+        c->updateId(i);
+        ui->lvTableaux->addItem(c->toItem());
+        ++i;
+    }
+    ui->lvTableaux->repaint();
+
+}
+
+void MainWindow::on_erase_leSearch_released()
+{
+    ui->leSearch->setText("");
+}
